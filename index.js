@@ -3,15 +3,20 @@ export default {
     const url = new URL(request.url);
 
     // ==========================================
-    // 🔗 DIRECT LINKS FOR ADS
+    // 🔑 PASSWORD RAHASIA ADMIN (SAMA DENGAN INDEX.HTML)
     // ==========================================
-    const ADSTERRA_DIRECT_LINK_1 = "https://www.highratecpmgate.com/link-ads-1"; // Green Button Link
-    const ADSTERRA_DIRECT_LINK_2 = "https://www.highratecpmgate.com/link-ads-2"; // Red Button Link
+    const ADMIN_SECRET_KEY = "rahasia123"; 
+
+    // ==========================================
+    // 🔗 DIRECT LINKS UNTUK IKLAN (ADSTERRA / MONETAG)
+    // ==========================================
+    const ADSTERRA_DIRECT_LINK_1 = "https://www.highratecpmgate.com/link-ads-1"; // Link Tombol Hijau
+    const ADSTERRA_DIRECT_LINK_2 = "https://www.highratecpmgate.com/link-ads-2"; // Link Tombol Merah
 
     // ==========================================
     // 🛡️ REDIRECT AMAN UNTUK HALAMAN UTAMA (ROOT)
     // ==========================================
-    // Jika seseorang/bot membuka domain utama tanpa path, alihkan ke Google
+    // Mengalihkan pengunjung/bot di domain utama ke Google
     if (url.pathname === '/' || url.pathname === '') {
       return Response.redirect('https://www.google.com', 302);
     }
@@ -50,15 +55,25 @@ export default {
       }
     }
 
-    // 2. API Endpoint to Upload Video (With Custom Title)
+    // 2. API Endpoint to Upload Video (Protected with Password)
     if (url.pathname === '/api/upload' && request.method === 'POST') {
       try {
         const formData = await request.formData();
+        const authKey = formData.get('secret_key');
+
+        // Check Password Admin
+        if (authKey !== ADMIN_SECRET_KEY) {
+          return new Response(JSON.stringify({ error: 'Access Denied: Incorrect Admin Password!' }), {
+            status: 403,
+            headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+          });
+        }
+
         const videoFile = formData.get('video');
         const customTitle = formData.get('title');
         
         if (!videoFile) {
-          return new Response(JSON.stringify({ error: 'File video tidak ditemukan.' }), {
+          return new Response(JSON.stringify({ error: 'Video file not found.' }), {
             status: 400,
             headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
           });
@@ -95,19 +110,29 @@ export default {
       }
     }
 
-    // 3. API Endpoint to Delete Video
+    // 3. API Endpoint to Delete Video (Protected with Password)
     if (url.pathname === '/api/delete' && request.method === 'DELETE') {
       try {
+        const authKey = request.headers.get('x-secret-key');
+
+        // Check Password Admin
+        if (authKey !== ADMIN_SECRET_KEY) {
+          return new Response(JSON.stringify({ error: 'Access Denied: Incorrect Admin Password!' }), {
+            status: 403,
+            headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
+          });
+        }
+
         const videoId = url.searchParams.get('id');
         if (!videoId) {
-          return new Response(JSON.stringify({ error: 'ID Video diperlukan.' }), { 
+          return new Response(JSON.stringify({ error: 'Video ID is required.' }), { 
             status: 400, 
             headers: { 'Access-Control-Allow-Origin': '*' } 
           });
         }
 
         await env.VIDEOS_KV.delete(`video:${videoId}`);
-        return new Response(JSON.stringify({ success: true, message: 'Video berhasil dihapus.' }), {
+        return new Response(JSON.stringify({ success: true, message: 'Video deleted successfully.' }), {
           headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
         });
       } catch (err) {
@@ -175,9 +200,10 @@ export default {
   </style>
 </head>
 <body>
+  <!-- NAVBAR TANPA LINK (LOGO HANYA DISPLAY) -->
   <nav class="navbar navbar-dark mb-4">
     <div class="container">
-      <a class="navbar-brand fw-bold text-primary" href="/"><i class="fa-solid fa-play me-2"></i>StreamMax</a>
+      <span class="navbar-brand fw-bold text-primary mb-0 h1" style="cursor: default;"><i class="fa-solid fa-play me-2"></i>StreamMax</span>
     </div>
   </nav>
 
