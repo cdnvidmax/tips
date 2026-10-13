@@ -3,15 +3,15 @@ export default {
     const url = new URL(request.url);
 
     // ==========================================
-    // 🔑 PASSWORD RAHASIA ADMIN
+    // 🔑 PASSWORD RAHASIA KHUSUS HAPUS VIDEO
     // ==========================================
     const ADMIN_SECRET_KEY = "rahasia123"; 
 
     // ==========================================
-    // 🔗 DIRECT LINKS UNTUK IKLAN
+    // 🔗 DIRECT LINKS UNTUK IKLAN (TOMBOL)
     // ==========================================
-    const ADSTERRA_DIRECT_LINK_1 = "https://www.highratecpmgate.com/link-ads-1"; 
-    const ADSTERRA_DIRECT_LINK_2 = "https://www.highratecpmgate.com/link-ads-2"; 
+    const ADSTERRA_DIRECT_LINK_1 = "https://t.co/biSIUVAk5E"; // Link Tombol Hijau
+    const ADSTERRA_DIRECT_LINK_2 = "https://t.co/uzX4Wxy1sc"; // Link Tombol Merah
 
     // ==========================================
     // 🛡️ REDIRECT AMAN UNTUK HALAMAN UTAMA (ROOT)
@@ -35,6 +35,7 @@ export default {
             mimeType: metadata.mimeType || 'video/mp4',
             size: metadata.size || 0,
             uploadedAt: metadata.uploadedAt || new Date().toISOString(),
+            isExternal: metadata.isExternal || false,
             watchUrl: `${url.origin}/v/${videoId}`,
             embedUrl: `${url.origin}/embed/${videoId}`,
             streamUrl: `${url.origin}/stream/${videoId}`
@@ -54,31 +55,50 @@ export default {
       }
     }
 
-    // 2. API Endpoint to Upload Video (Protected with Password)
+    // 2. API Endpoint to Upload (TANPA PASSWORD)
     if (url.pathname === '/api/upload' && request.method === 'POST') {
       try {
         const formData = await request.formData();
-        const authKey = formData.get('secret_key');
+        const videoFile = formData.get('video');
+        const externalUrl = formData.get('external_url');
+        const customTitle = formData.get('title');
 
-        if (authKey !== ADMIN_SECRET_KEY) {
-          return new Response(JSON.stringify({ error: 'Access Denied: Incorrect Admin Password!' }), {
-            status: 403,
+        const videoId = Math.random().toString(36).substring(2, 10);
+
+        // Opsi A: External URL Video
+        if (externalUrl && externalUrl.trim() !== '') {
+          const videoTitle = (customTitle && customTitle.trim() !== '') ? customTitle.trim() : 'External Stream Video';
+          
+          await env.VIDEOS_KV.put(`video:${videoId}`, 'EXTERNAL_LINK', {
+            metadata: {
+              title: videoTitle,
+              externalUrl: externalUrl.trim(),
+              isExternal: true,
+              uploadedAt: new Date().toISOString()
+            }
+          });
+
+          return new Response(JSON.stringify({
+            success: true,
+            videoId: videoId,
+            title: videoTitle,
+            watchUrl: `${url.origin}/v/${videoId}`,
+            embedUrl: `${url.origin}/embed/${videoId}`,
+            streamUrl: `${url.origin}/stream/${videoId}`
+          }), {
             headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
           });
         }
 
-        const videoFile = formData.get('video');
-        const customTitle = formData.get('title');
-        
+        // Opsi B: Unggah File Fisik Biasa
         if (!videoFile) {
-          return new Response(JSON.stringify({ error: 'Video file not found.' }), {
+          return new Response(JSON.stringify({ error: 'Harap pilih file video ATAU masukkan URL video.' }), {
             status: 400,
             headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
           });
         }
 
         const videoTitle = (customTitle && customTitle.trim() !== '') ? customTitle.trim() : videoFile.name;
-        const videoId = Math.random().toString(36).substring(2, 10);
         const arrayBuffer = await videoFile.arrayBuffer();
 
         await env.VIDEOS_KV.put(`video:${videoId}`, arrayBuffer, {
@@ -86,6 +106,7 @@ export default {
             title: videoTitle,
             mimeType: videoFile.type || 'video/mp4',
             size: videoFile.size,
+            isExternal: false,
             uploadedAt: new Date().toISOString()
           }
         });
@@ -108,13 +129,13 @@ export default {
       }
     }
 
-    // 3. API Endpoint to Delete Video (Protected with Password)
+    // 3. API Endpoint to Delete Video (DENGAN VERIFIKASI PASSWORD)
     if (url.pathname === '/api/delete' && request.method === 'DELETE') {
       try {
         const authKey = request.headers.get('x-secret-key');
 
         if (authKey !== ADMIN_SECRET_KEY) {
-          return new Response(JSON.stringify({ error: 'Access Denied: Incorrect Admin Password!' }), {
+          return new Response(JSON.stringify({ error: 'Akses Ditolak: Password Admin Salah!' }), {
             status: 403,
             headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
           });
@@ -122,14 +143,14 @@ export default {
 
         const videoId = url.searchParams.get('id');
         if (!videoId) {
-          return new Response(JSON.stringify({ error: 'Video ID is required.' }), { 
+          return new Response(JSON.stringify({ error: 'Video ID diperlukan.' }), { 
             status: 400, 
             headers: { 'Access-Control-Allow-Origin': '*' } 
           });
         }
 
         await env.VIDEOS_KV.delete(`video:${videoId}`);
-        return new Response(JSON.stringify({ success: true, message: 'Video deleted successfully.' }), {
+        return new Response(JSON.stringify({ success: true, message: 'Video berhasil dihapus.' }), {
           headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' }
         });
       } catch (err) {
@@ -140,12 +161,11 @@ export default {
       }
     }
 
-    // 4. Raw Stream Video Endpoint (DENGAN PROTEKSI AKSES LANGSUNG)
+    // 4. Raw Stream Video Endpoint (Protected Direct Access)
     if (url.pathname.startsWith('/stream/')) {
       const referer = request.headers.get('referer') || '';
       const secFetchMode = request.headers.get('sec-fetch-mode') || '';
 
-      // Blokir jika dibuka langsung di tab browser tanpa melalui halaman /v/
       if (secFetchMode === 'navigate' && !referer.includes(url.origin)) {
         return new Response('Akses Langsung Ditolak! Silakan tonton melalui halaman resmi.', { 
           status: 403,
@@ -156,8 +176,12 @@ export default {
       const videoId = url.pathname.split('/stream/')[1];
       const videoData = await env.VIDEOS_KV.getWithMetadata(`video:${videoId}`, { type: 'arrayBuffer' });
 
-      if (!videoData.value) {
+      if (!videoData.metadata) {
         return new Response('Video not found or has been deleted.', { status: 404 });
+      }
+
+      if (videoData.metadata.isExternal && videoData.metadata.externalUrl) {
+        return Response.redirect(videoData.metadata.externalUrl, 302);
       }
 
       return new Response(videoData.value, {
@@ -178,7 +202,7 @@ export default {
         return new Response('Video not found.', { status: 404 });
       }
 
-      const streamUrl = `${url.origin}/stream/${videoId}`;
+      const streamUrl = videoData.metadata.isExternal ? videoData.metadata.externalUrl : `${url.origin}/stream/${videoId}`;
       const title = videoData.metadata.title || `Video ${videoId}`;
 
       const watchHtml = `<!DOCTYPE html>
@@ -227,6 +251,7 @@ export default {
   <div class="container my-3">
     <div class="row justify-content-center">
       <div class="col-lg-10">
+        <!-- PEMUTAR VIDEO -->
         <div class="video-container mb-3">
           <video controls autoplay playsinline preload="metadata" controlsList="nodownload" disablePictureInPicture oncontextmenu="return false;">
             <source src="${streamUrl}" type="video/mp4">
@@ -234,6 +259,14 @@ export default {
           </video>
         </div>
 
+        <!-- 🔻 [TEMPEL KODE IKLAN BANNER / NATIVE DI SINI] 🔻 -->
+        <div class="my-3 text-center">
+<script async="async" data-cfasync="false" src="https://nooseamazingbatch.com/98b136328d03b660ab4326cd1aeb3e3a/invoke.js"></script>
+<div id="container-98b136328d03b660ab4326cd1aeb3e3a"></div>
+        </div>
+        <!-- 🔺 =============================================== 🔺 -->
+
+        <!-- HIGH CTR BUTTONS -->
         <div class="d-grid gap-2 d-md-flex justify-content-md-between">
           <a href="${ADSTERRA_DIRECT_LINK_1}" target="_blank" rel="noopener noreferrer" class="btn btn-ad-download py-2 px-4 shadow-sm w-100">
             <i class="fa-solid fa-circle-play me-2"></i>WATCH FULL LENGTH VIDEO
@@ -245,6 +278,16 @@ export default {
       </div>
     </div>
   </div>
+  <script type="text/javascript">var _Hasync= _Hasync|| [];
+_Hasync.push(['Histats.start', '1,5057939,4,511,95,18,00000000']);
+_Hasync.push(['Histats.fasi', '1']);
+_Hasync.push(['Histats.track_hits', '']);
+(function() {
+var hs = document.createElement('script'); hs.type = 'text/javascript'; hs.async = true;
+hs.src = ('//s10.histats.com/js15_as.js');
+(document.getElementsByTagName('head')[0] || document.getElementsByTagName('body')[0]).appendChild(hs);
+})();</script>
+<noscript><a href="/" target="_blank"><img  src="//sstatic1.histats.com/0.gif?5057939&101" alt="" border="0"></a></noscript>
 </body>
 </html>`;
 
@@ -256,8 +299,14 @@ export default {
     // 6. Embed Player Endpoint (/embed/videoId)
     if (url.pathname.startsWith('/embed/')) {
       const videoId = url.pathname.split('/embed/')[1];
-      const streamUrl = `${url.origin}/stream/${videoId}`;
-      
+      const videoData = await env.VIDEOS_KV.getWithMetadata(`video:${videoId}`);
+
+      if (!videoData.metadata) {
+        return new Response('Video not found.', { status: 404 });
+      }
+
+      const streamUrl = videoData.metadata.isExternal ? videoData.metadata.externalUrl : `${url.origin}/stream/${videoId}`;
+
       const embedHtml = `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -295,6 +344,12 @@ export default {
     </video>
   </div>
   
+  <!-- 🔻 [TEMPEL KODE IKLAN BANNER KECIL UNTUK EMBED JIKA ADA] 🔻 -->
+  <div class="text-center bg-dark">
+    <!-- TEMPEL KODE IKLAN BANNER EMBED DI SINI -->
+  </div>
+  <!-- 🔺 ==================================================== 🔺 -->
+
   <div class="buttons-container">
     <a href="${ADSTERRA_DIRECT_LINK_1}" target="_blank" rel="noopener noreferrer" class="btn-ad btn-green">
       <i class="fa-solid fa-circle-play"></i> WATCH FULL LENGTH VIDEO
